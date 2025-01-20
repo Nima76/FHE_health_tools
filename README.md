@@ -13,19 +13,25 @@ _____
 #### Step 1: Clone the Repository
 Download the project by cloning the GitHub repository:
 
-`git clone <repository_url>`
+``` 
+git clone <repository_url>
+```
 
 #### Step 2: Install Requirements
 
 Navigate to the project folder and install the required Python libraries:
 
-`pip install -r requirements.txt `
+```
+pip install -r requirements.txt
+```
 
 #### Step 3: Run the Application
 
 Start the application by running the app.py file:
 
-`python3 app.py`
+```
+python3 app.py
+```
 
 > Note: The application will run by default on localhost port 5000.
 
