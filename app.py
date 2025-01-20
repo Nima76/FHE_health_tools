@@ -31,10 +31,9 @@ def pull_docker_image():
     try:
         #update_status("Pulling Docker image...")
         client.images.pull('encryptdev/fhe_health_data_encryption')
-        update_status("Image pulled successfully! Ready to run container.")
+        #update_status("Image pulled successfully! Ready to run container.")
     except Exception as e:
         update_status(f"Error pulling image: {e}")
-
 
 def run_docker_container():
     """Run Docker container with a specific name."""
@@ -76,7 +75,6 @@ def upload_file_to_container(container, local_file, container_path):
     except Exception as e:
         update_status(f"Error uploading file: {e}")
 
-
 def initiate_encryption(container):
     """Start the encryption process inside the container."""
     try:
@@ -87,19 +85,6 @@ def initiate_encryption(container):
         update_status("Encryption complete! Ready to create ZIP.")
     except Exception as e:
         update_status(f"Error during encryption: {e}")
-
-
-#def create_zip_from_results(container, result_dir="/bdt/results", zip_name="results.zip"):
-    # """Create a ZIP file from the results directory inside the container."""
-    # try:
-    #     update_status(f"Creating ZIP from results directory...")
-    #     exec_log = container.exec_run(f"zip -r {zip_name} {result_dir}")
-    #     if exec_log.exit_code == 0:
-    #         update_status(f"ZIP created successfully: {zip_name}")
-    #     else:
-    #         update_status("Error creating ZIP file.")
-    # except Exception as e:
-    #     update_status(f"Error creating ZIP file: {e}")
 
 def create_zip_from_results2(container, result_dir="/bdt/results2", zip_name="results.zip"):
     """Create a ZIP file from the results directory inside the container using Python's zipfile."""
@@ -123,14 +108,13 @@ with zipfile.ZipFile("/bdt/{zip_name}", "w", zipfile.ZIP_DEFLATED) as z:
         exec_log = container.exec_run(f"python3 -c '{python_code}'")
 
         if exec_log.exit_code == 0:
-            update_status(f"ZIP created successfully, Ready to Download it")
+            print("ZIP created successfully, Ready to Download it")
         else:
             update_status(f"Error creating ZIP file: {exec_log.output.decode().strip()}")
             print(f"Error: {exec_log.output.decode().strip()}")
     except Exception as e:
         update_status(f"Error creating ZIP file: {e}")
         print(f"Error: {e}")
-
 
 def download_results_from_container(container, container_path, local_path):
     try:
@@ -142,7 +126,7 @@ def download_results_from_container(container, container_path, local_path):
             for chunk in bits:
                 f.write(chunk)
         
-        print("Results downloading started!")
+        update_status("Downloading of results has started! Once the download is complete, you may delete the container")
     except Exception as e:
         print(f"Error downloading results: {e}")
 
@@ -168,21 +152,6 @@ def home():
     return render_template('index.html')
 
 
-@app.route('/pull_image', methods=['POST'])
-def pull_image():
-    pull_docker_image()
-    return redirect(url_for('home'))
-
-
-@app.route('/run_container', methods=['POST'])
-def run_container():
-    container = run_docker_container()
-    if container:
-        return redirect(url_for('home'))
-    else:
-        return "Error: Could not start the container", 500
-
-
 @app.route('/upload', methods=['POST'])
 def upload():
     file = request.files['file']
@@ -204,19 +173,21 @@ def start_encryption():
     return redirect(url_for('home'))
 
 
-@app.route('/create_zip', methods=['POST'])
-def create_zip():
-    container = client.containers.get('fhe_data_encryption')
-    create_zip_from_results2(container)
+@app.route('/setup_environment', methods=['POST'])
+def setup_environment():
+    """Pull Docker image and run container."""
+    pull_docker_image()
+    run_docker_container()
     return redirect(url_for('home'))
 
 
-@app.route('/download', methods=['POST'])
-def download():
+@app.route('/download_encrypted_data', methods=['POST'])
+def download_encrypted_data():
+    """Create ZIP file and download encrypted data."""
     container = client.containers.get('fhe_data_encryption')
+    create_zip_from_results2(container)
     download_results_from_container(container, '/bdt/results', app.config['RESULT_FOLDER'])
     return send_from_directory(app.config['RESULT_FOLDER'], 'results.zip', as_attachment=True)
-
 
 if __name__ == '__main__':
     app.run(debug=True)
