@@ -1,9 +1,7 @@
 import os
 import docker
-from flask import Flask, render_template, request, send_from_directory, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-import zipfile
-
 import secrets
 
 app = Flask(__name__)
@@ -11,92 +9,71 @@ app.config['UPLOAD_FOLDER'] = './uploads'
 app.config['RESULT_FOLDER'] = './results'
 
 client = docker.from_env()
-app.secret_key = secrets.token_hex(16)  # Generates a secure random key
+app.secret_key = secrets.token_hex(16)  # Secure random key
 
-# Create upload and result folders if they don't exist
+# Create folders if they don't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['RESULT_FOLDER'], exist_ok=True)
 
 
-# def update_status(message):
-#     """Updates the status in the web interface."""
-#     print(message)  # This will be printed to console for logs.
+def update_status(message, error=False):
+    """Send a status update to the frontend."""
+    return jsonify({"status": message, "error": error})
 
-def update_status(message):
-    """Updates the status in the web interface."""
-    flash(message)
 
-def pull_docker_image():
-    """Pull Docker image."""
+def pull_docker_image(image_name):
+    """Pull the specified Docker image."""
     try:
-        #update_status("Pulling Docker image...")
-        client.images.pull('encryptdev/fhe_health_data_encryption')
-        #update_status("Image pulled successfully! Ready to run container.")
+        client.images.pull(image_name)
+        return update_status(f"Pulled Docker image: {image_name}")
     except Exception as e:
-        update_status(f"Error pulling image: {e}")
+        return update_status(f"Error pulling image: {str(e)}", error=True)
 
-def run_docker_container():
-    """Run Docker container with a specific name."""
+
+def run_docker_container(image_name, container_name):
+    """Run a Docker container with the given image and name."""
     try:
-        # Check if container already exists
+        # Stop and remove existing container if needed
         existing_container = None
         for container in client.containers.list(all=True):
-            if container.name == 'fhe_data_encryption':
+            if container.name == container_name:
                 existing_container = container
                 break
 
-        # If the container exists, remove it
         if existing_container:
-            #update_status("Existing container found. Removing it...")
             existing_container.stop()
             existing_container.remove()
-            #update_status("Existing container removed.")
 
-        # Now run a new container
-        #update_status("Starting container...")
-        container = client.containers.run(
-            'encryptdev/fhe_health_data_encryption',
-            name='fhe_data_encryption',  # Named container
+        # Run the new container
+        client.containers.run(
+            image_name,
+            name=container_name,
             detach=True,
             tty=True
         )
-        update_status("Container running! Ready to upload data.")
-        return container
+        return update_status(f"Container '{container_name}' is running.")
     except Exception as e:
-        update_status(f"Error starting container: {e}")
-        return None
+        return update_status(f"Error starting container: {str(e)}", error=True)
 
-def upload_file_to_container(container, local_file, container_path):
-    """Upload a file to the Docker container using `docker cp`."""
+
+def upload_file_to_container(container_name, local_file, container_path):
+    """Upload a file to a specific Docker container."""
     try:
-        #update_status(f"Uploading {local_file} to container...")
-        os.system(f"docker cp {local_file} fhe_data_encryption:/bdt/data")
-        update_status("File uploaded! Ready for encryption.")
+        os.system(f"docker cp {local_file} {container_name}:{container_path}")
+        return update_status("File uploaded successfully.")
     except Exception as e:
-        update_status(f"Error uploading file: {e}")
+        return update_status(f"Error uploading file: {str(e)}", error=True)
 
-def initiate_encryption(container):
-    """Start the encryption process inside the container."""
-    try:
-        #update_status("Starting encryption process...")
-        exec_log = container.exec_run('./encrypt-medical-setup', stream=True)
-        for line in exec_log.output:
-            print(line.decode().strip())
-        update_status("Encryption complete! Ready to create ZIP.")
-    except Exception as e:
-        update_status(f"Error during encryption: {e}")
 
-def create_zip_from_results2(container, result_dir="/bdt/results2", zip_name="results.zip"):
+def create_zip_from_results2(container, result_dir="/bdt/build/results", zip_name="results.zip"):
     """Create a ZIP file from the results directory inside the container using Python's zipfile."""
     try:
-        #update_status(f"Creating ZIP from results directory...")
-
         # Multi-line Python code to create ZIP inside the container
         python_code = f"""
 import zipfile
 import os
 
-with zipfile.ZipFile("/bdt/{zip_name}", "w", zipfile.ZIP_DEFLATED) as z:
+with zipfile.ZipFile("/bdt/build/{zip_name}", "w", zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk("{result_dir}"):
         for file in files:
             if not file.startswith("."):
@@ -116,9 +93,9 @@ with zipfile.ZipFile("/bdt/{zip_name}", "w", zipfile.ZIP_DEFLATED) as z:
         update_status(f"Error creating ZIP file: {e}")
         print(f"Error: {e}")
 
+
 def download_results_from_container(container, container_path, local_path):
     try:
-        #print(f"Downloading results from {container_path}...")
         bits, stat = container.get_archive(container_path)
         
         # Write the bits to a local file
@@ -131,63 +108,104 @@ def download_results_from_container(container, container_path, local_path):
         print(f"Error downloading results: {e}")
 
 
-def remove_docker_container():
-    """Stop and remove Docker container."""
-    try:
-        container = client.containers.get('fhe_data_encryption')
-        container.stop()
-        container.remove()
-        update_status("Container removed successfully!")
-    except Exception as e:
-        update_status(f"Error removing container: {e}")
-
-
-@app.route('/remove_container', methods=['POST'])
-def remove_container():
-    remove_docker_container()
-    return redirect(url_for('home'))
-
 @app.route('/')
 def home():
+    """Serve the frontend."""
     return render_template('index.html')
-
-
-@app.route('/upload', methods=['POST'])
-def upload():
-    file = request.files['file']
-    if file:
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        container = client.containers.get('fhe_data_encryption')
-        upload_file_to_container(container, file_path, '/bdt/data')
-        return redirect(url_for('home'))
-    return "Error: No file uploaded", 400
-
-
-@app.route('/start_encryption', methods=['POST'])
-def start_encryption():
-    container = client.containers.get('fhe_data_encryption')
-    initiate_encryption(container)
-    return redirect(url_for('home'))
 
 
 @app.route('/setup_environment', methods=['POST'])
 def setup_environment():
-    """Pull Docker image and run container."""
-    pull_docker_image()
-    run_docker_container()
-    return redirect(url_for('home'))
+    """Setup environment based on selected mode (encryption or decryption)."""
+    mode = request.json.get('mode')
+    if mode == 'encryption':
+        image_name = 'encryptdev/fhe_health_enc:0.1'
+        container_name = 'enc'
+    elif mode == 'decryption':
+        image_name = 'encryptdev/fhe_health_dec:0.1'
+        container_name = 'dec'
+    else:
+        return update_status("Invalid mode selected.", error=True)
+
+    # Pull image and run container
+    pull_result = pull_docker_image(image_name)
+    if pull_result.json['error']:
+        return pull_result
+
+    return run_docker_container(image_name, container_name)
 
 
-@app.route('/download_encrypted_data', methods=['POST'])
-def download_encrypted_data():
-    """Create ZIP file and download encrypted data."""
-    container = client.containers.get('fhe_data_encryption')
+@app.route('/upload', methods=['POST'])
+def upload():
+    """Upload a file for encryption or decryption."""
+    mode = request.form.get('mode')
+    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+    file = request.files['file']
+
+    if not file:
+        return update_status("No file uploaded.", error=True)
+
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+
+    return upload_file_to_container(container_name, file_path, '/bdt/build/data')
+
+
+@app.route('/start_process', methods=['POST'])
+def start_process():
+    """Start encryption or decryption process."""
+    mode = request.json.get('mode')
+    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+    script_name = './encrypt-medical-setup' if mode == 'encryption' else './decrypt-medical-setup'
+
+    try:
+        container = client.containers.get(container_name)
+        exec_log = container.exec_run(script_name, stream=True)
+        for line in exec_log.output:
+            print(line.decode().strip())
+        return update_status(f"{mode.capitalize()} process completed.")
+    except Exception as e:
+        return update_status(f"Error during {mode}: {str(e)}", error=True)
+
+
+@app.route('/download', methods=['POST'])
+def download():
+    """Download the processed data as a ZIP file."""
+    mode = request.json.get('mode')
+    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+    container = client.containers.get(container_name)
+
+    # Create ZIP file inside the container
     create_zip_from_results2(container)
-    download_results_from_container(container, '/bdt/results', app.config['RESULT_FOLDER'])
+
+    # Download the ZIP file
+    local_zip_path = os.path.join(app.config['RESULT_FOLDER'], 'results.zip')
+    try:
+        bits, stat = container.get_archive('/bdt/build/results.zip')
+        with open(local_zip_path, 'wb') as f:
+            for chunk in bits:
+                f.write(chunk)
+    except Exception as e:
+        return update_status(f"Error downloading results: {str(e)}", error=True)
+
+    # Return the file for download
     return send_from_directory(app.config['RESULT_FOLDER'], 'results.zip', as_attachment=True)
+
+@app.route('/remove_container', methods=['POST'])
+def remove_container():
+    """Remove the Docker container."""
+    mode = request.json.get('mode')
+    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+
+    try:
+        container = client.containers.get(container_name)
+        container.stop()
+        container.remove()
+        return update_status(f"Container '{container_name}' removed successfully.")
+    except Exception as e:
+        return update_status(f"Error removing container: {str(e)}", error=True)
+
 
 if __name__ == '__main__':
     app.run(debug=True)
