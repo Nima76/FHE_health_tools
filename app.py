@@ -56,13 +56,22 @@ def run_docker_container(image_name, container_name):
         return update_status(f"Error starting container: {str(e)}", error=True)
 
 
-def upload_file_to_container(container_name, local_file, container_path):
-    """Upload a file to a specific Docker container."""
+def upload_file_to_container(container_name, local_files, container_path):
+    """Upload multiple files to a specific Docker container with their original names."""
     try:
-        os.system(f"docker cp {local_file} {container_name}:{container_path}")
-        return update_status("File uploaded successfully.")
+        for local_file in local_files:
+            # Extract the filename from the local file path
+            filename = os.path.basename(local_file)
+            print(filename)
+            # Upload the file to the container with its original name
+            if container_name == "enc":
+                print(f"docker cp {local_file} {container_name}:{container_path}/table.csv")
+                os.system(f"docker cp {local_file} {container_name}:{container_path}/table.csv")
+            elif container_name == "dec":
+                os.system(f"docker cp {local_file} {container_name}:{container_path}/{filename}")
+        return update_status("Files uploaded successfully.")
     except Exception as e:
-        return update_status(f"Error uploading file: {str(e)}", error=True)
+        return update_status(f"Error uploading files: {str(e)}", error=True)
 
 
 def create_zip_from_results2(container, result_dir="/bdt/build/results", zip_name="results.zip"):
@@ -137,27 +146,47 @@ def setup_environment():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    """Upload a file for encryption or decryption."""
+    """Upload files for encryption or decryption."""
     mode = request.form.get('mode')
-    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
-    file = request.files['file']
+    container_name = 'enc' if mode == 'encryption' else 'dec'
+    files = request.files.getlist('file')  # Get all uploaded files
 
-    if not file:
-        return update_status("No file uploaded.", error=True)
+    if not files:
+        return update_status("No files uploaded.", error=True)
 
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
+    # Save files locally and prepare their paths
+    local_files = []
+    for file in files:
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        local_files.append(file_path)
+    print(local_files)
+    # Specify the destination path in the container
+    container_path = '/bdt/build/data'
 
-    return upload_file_to_container(container_name, file_path, '/bdt/build/data')
+    # For encryption, rename the file to "table.csv"
+    if mode == 'encryption':
+        if len(local_files) != 1:
+            return update_status("Encryption requires exactly 1 file.", error=True)
+        return upload_file_to_container(container_name, local_files, container_path)
+
+    # For decryption, upload all files with their original names
+    elif mode == 'decryption':
+        if len(local_files) != 3:
+            return update_status("Decryption requires exactly 3 files.", error=True)
+        return upload_file_to_container(container_name, local_files, container_path)
+
+    else:
+        return update_status("Invalid mode selected.", error=True)
 
 
 @app.route('/start_process', methods=['POST'])
 def start_process():
     """Start encryption or decryption process."""
     mode = request.json.get('mode')
-    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
-    script_name = './encrypt-medical-setup' if mode == 'encryption' else './decrypt-medical-setup'
+    container_name = 'enc' if mode == 'encryption' else 'dec'
+    script_name = './encrypt-medical-setup' if mode == 'encryption' else './encrypt-medical-getresult'
 
     try:
         container = client.containers.get(container_name)
@@ -173,7 +202,7 @@ def start_process():
 def download():
     """Download the processed data as a ZIP file."""
     mode = request.json.get('mode')
-    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+    container_name = 'enc' if mode == 'encryption' else 'dec'
     container = client.containers.get(container_name)
 
     # Create ZIP file inside the container
@@ -192,11 +221,12 @@ def download():
     # Return the file for download
     return send_from_directory(app.config['RESULT_FOLDER'], 'results.zip', as_attachment=True)
 
+
 @app.route('/remove_container', methods=['POST'])
 def remove_container():
     """Remove the Docker container."""
     mode = request.json.get('mode')
-    container_name = 'fhe_data_encryption' if mode == 'encryption' else 'fhe_result_decryption'
+    container_name = 'enc' if mode == 'encryption' else 'dec'
 
     try:
         container = client.containers.get(container_name)
@@ -206,6 +236,46 @@ def remove_container():
     except Exception as e:
         return update_status(f"Error removing container: {str(e)}", error=True)
 
+@app.route('/upload_file', methods=['POST'])
+def upload_file():
+    try:
+        print("=====================")
+        container_name = 'dec'
+        files = request.files.getlist('file')
+        print(files)
+        file_type = request.form['fileType']
+        print(file_type)
+        container_path = '/bdt/build/data'
+
+        # Define the target filenames for each file type
+        filename_map = {
+            'encrypted_result': 'encrypted_result.txt',
+            'cryptocontext': 'cryptocontext.txt',
+            'key-private': 'key-private.txt',
+        }
+        if file_type not in filename_map:
+            return jsonify({'status': 'Invalid file type.', 'error': True}), 400
+        # Save the file to the designated upload folder with the correct filename
+        for file in files:
+            print("+++++")
+            target_filename = filename_map[file_type]
+            print(target_filename)
+            filename = secure_filename(target_filename)
+            print(filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            print(f"{file_path}")
+            file.save(file_path)
+            print("file_saved")
+            print(os.path.basename(file_path))     
+            local_files = []
+            local_files.append(file_path)   
+            upload_file_to_container(container_name, local_files, container_path)
+        return jsonify({'status': 'File uploaded successfully.', 'error': False}), 200
+
+        #return jsonify({'status': f'{target_filename} uploaded successfully.', 'error': False}), 200
+
+    except Exception as e:
+        return jsonify({'status': f'Error22: {str(e)}', 'error': True}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
