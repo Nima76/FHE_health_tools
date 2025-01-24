@@ -131,7 +131,7 @@ def setup_environment():
         image_name = 'encryptdev/fhe_health_enc:0.1'
         container_name = 'enc'
     elif mode == 'decryption':
-        image_name = 'encryptdev/fhe_health_dec:0.1'
+        image_name = 'encryptdev/fhe_health_dec:0.2'
         container_name = 'dec'
     else:
         return update_status("Invalid mode selected.", error=True)
