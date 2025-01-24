@@ -26,6 +26,13 @@
             border-radius: 10px;
             margin-bottom: 20px;
         }
+        .card2{
+            border: 2px solid color(srgb 0.8666 0.8667 0.8668);
+            padding: 10px;
+            border-radius: 10px;
+            background: color(srgb 0.9764 0.9765 0.9766);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
         .btn-custom {
             background-color: #4a719a;
             color: white;
@@ -112,10 +119,10 @@
         .step-title i {
             margin-right: 10px;
         }
-        .step-title .fa-check {
+        .step-title .fa-check, .card2 .fa-check {
             color: green;
         }
-        .step-title .fa-times {
+        .step-title .fa-times, .card2 .fa-times {
             color: red;
         }
         .progress-text {
@@ -168,7 +175,7 @@
                         <i id="encryptionUploadIcon" class="fas fa-times"></i>
                         Step 2: Upload Data for Encryption
                     </h5>
-                    <input type="file" id="encryptionFile" class="form-control-file">
+                    <input type="file" id="encryptionFile" class="form-control">
                     <button id="encryptionUploadButton" onclick="uploadFile('encryption')" class="btn btn-custom w-100 mt-2">Upload</button>
                     <div id="encryptionUploadOverlay" class="disabled-overlay" style="display: none;"></div>
                 </div>
@@ -214,18 +221,38 @@
                     <button id="decryptionSetupButton" onclick="setupEnvironment('decryption')" class="btn btn-custom w-100">Setup Environment</button>
                     <div id="decryptionSetupOverlay" class="disabled-overlay" style="display: none;"></div>
                 </div>
-
-                <!-- Step 2: Upload File -->
+            
+                <!-- Step 2: Upload Files -->
                 <div id="uploadDecryptionFile" class="card p-4">
                     <h5 class="card-title step-title">
-                        <i id="decryptionUploadIcon" class="fas fa-times"></i>
-                        Step 2: Upload Data for Decryption
+                        Step 2: Upload Files for Decryption
                     </h5>
-                    <input type="file" id="decryptionFile" class="form-control-file">
-                    <button id="decryptionUploadButton" onclick="uploadFile('decryption')" class="btn btn-custom w-100 mt-2">Upload</button>
-                    <div id="decryptionUploadOverlay" class="disabled-overlay" style="display: none;"></div>
+            
+                    <!-- Upload Box for encrypted_result.txt -->
+                    <div class="mb-3 card2">
+                        <i id="decryptionencrypted_resultIcon" class="fas fa-times"></i>
+                        <label for="encryptedResultFile" class="form-label">1- encrypted_result.txt</label>
+                        <input type="file" id="encryptedResultFile" class="form-control">
+                        <button id="decryptionencrypted_resultButton" class="btn btn-custom w-100 mt-2" onclick="uploadDecryptionFile('encrypted_result')">Upload</button>
+                    </div>
+            
+                    <!-- Upload Box for cryptocontext.txt -->
+                    <div class="mb-3 card2">
+                        <i id="decryptioncryptocontextIcon" class="fas fa-times"></i>
+                        <label for="cryptocontextFile" class="form-label">2- cryptocontext.txt</label>
+                        <input type="file" id="cryptocontextFile" class="form-control">
+                        <button id="decryptioncryptocontextButton" class="btn btn-custom w-100 mt-2" onclick="uploadDecryptionFile('cryptocontext')" disabled>Upload</button>
+                    </div>
+            
+                    <!-- Upload Box for key-private.txt -->
+                    <div class="mb-3 card2">
+                        <i id="decryptionkey-privateIcon" class="fas fa-times"></i>
+                        <label for="keyPrivateFile" class="form-label">3- key-private.txt</label>
+                        <input type="file" id="keyPrivateFile" class="form-control">
+                        <button id="decryptionkey-privateButton" class="btn btn-custom w-100 mt-2" onclick="uploadDecryptionFile('key-private')" disabled>Upload</button>
+                    </div>
                 </div>
-
+            
                 <!-- Step 3: Start Process -->
                 <div class="card p-4">
                     <h5 class="card-title step-title">
@@ -235,7 +262,7 @@
                     <button id="decryptionProcessButton" onclick="startProcess('decryption')" class="btn btn-custom w-100" disabled>Start Decryption</button>
                     <div id="decryptionProcessStatus" class="process-status" style="display: none;"></div>
                 </div>
-
+            
                 <!-- Step 4: Download Results -->
                 <div class="card p-4">
                     <h5 class="card-title step-title">
@@ -245,7 +272,7 @@
                     <button id="decryptionDownloadButton" onclick="downloadResults('decryption')" class="btn btn-custom w-100" disabled>Download</button>
                     <div id="decryptionDownloadStatus" class="process-status" style="display: none;"></div>
                 </div>
-
+            
                 <!-- Step 5: Remove Container -->
                 <div class="card p-4">
                     <h5 class="card-title step-title">
@@ -254,7 +281,7 @@
                     </h5>
                     <button id="decryptionRemoveButton" onclick="removeContainer('decryption')" class="btn btn-danger-custom w-100">Remove Container</button>
                 </div>
-            </div>
+            </div>            
         </div>
     </div>
 
@@ -288,6 +315,7 @@
             if (success) {
                 icon.className = 'fas fa-check';
                 button.disabled = true;
+                button.textContent = 'Uploaded';
                 button.classList.add('btn-custom-disabled');
             } else {
                 icon.className = 'fas fa-times';
@@ -317,33 +345,77 @@
                 enableNextStep(mode, 'Upload');
             }
         }
-
+        
         async function uploadFile(mode) {
-            const fileInput = document.getElementById(`${mode}File`);
-            const file = fileInput.files[0];
-            if (!file) {
-                showStatusMessage('Please select a file to upload.', true);
-                return;
-            }
+    const fileInput = document.getElementById(`${mode}File`);
+    const files = fileInput.files;
 
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('mode', mode);
+    if (!files || files.length === 0) {
+        showStatusMessage('Please select files to upload.', true);
+        return;
+    }
 
-            toggleSpinner(true, 'Upload is in progress...');
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            const data = await response.json();
-            showStatusMessage(data.status, data.error);
+    // For encryption, only 1 file is allowed
+    if (mode === 'encryption' && files.length !== 1) {
+        showStatusMessage('Encryption requires exactly 1 file.', true);
+        return;
+    }
 
-            if (!data.error) {
-                updateStepStatus(mode, 'Upload', true);
-                enableNextStep(mode, 'Process');
-            }
-            toggleSpinner(false);
-        }
+    // For decryption, exactly 3 files are required
+    if (mode === 'decryption' && files.length !== 3) {
+        showStatusMessage('Decryption requires exactly 3 files.', true);
+        return;
+    }
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+        formData.append('file', files[i]);
+    }
+    formData.append('mode', mode);
+
+    toggleSpinner(true, 'Upload is in progress...');
+    const response = await fetch('/upload', {
+        method: 'POST',
+        body: formData,
+    });
+    const data = await response.json();
+    showStatusMessage(data.status, data.error);
+
+    if (!data.error) {
+        fileInput.disabled = true;
+        updateStepStatus(mode, 'Upload', true);
+        enableNextStep(mode, 'Process');
+        // document.getElementById(`upload${mode.charAt(0).toUpperCase() + mode.slice(1)}File`).style.display = 'none';
+    }
+    toggleSpinner(false);
+}
+
+        // async function uploadFile(mode) {
+        //     const fileInput = document.getElementById(`${mode}File`);
+        //     const file = fileInput.files[0];
+        //     if (!file) {
+        //         showStatusMessage('Please select a file to upload.', true);
+        //         return;
+        //     }
+
+        //     const formData = new FormData();
+        //     formData.append('file', file);
+        //     formData.append('mode', mode);
+
+        //     toggleSpinner(true, 'Upload is in progress...');
+        //     const response = await fetch('/upload', {
+        //         method: 'POST',
+        //         body: formData,
+        //     });
+        //     const data = await response.json();
+        //     showStatusMessage(data.status, data.error);
+
+        //     if (!data.error) {
+        //         updateStepStatus(mode, 'Upload', true);
+        //         enableNextStep(mode, 'Process');
+        //     }
+        //     toggleSpinner(false);
+        // }
 
         async function startProcess(mode) {
             toggleSpinner(true, `${mode.charAt(0).toUpperCase() + mode.slice(1)} is in progress...`);
@@ -427,7 +499,55 @@
             toggleSpinner(false);
         }
 
+        async function uploadDecryptionFile(fileType) {
+        const fileInputMap = {
+            'encrypted_result': 'encryptedResultFile',
+            'cryptocontext': 'cryptocontextFile',
+            'key-private': 'keyPrivateFile',
+        };
+
+        const fileInput = document.getElementById(fileInputMap[fileType]);
+        const file = fileInput.files[0];
+
+        if (!file) {
+            showStatusMessage('Please select a file to upload.', true);
+            return;
+        }
+
+
+        if (file && file.name !== fileType+".txt") {
+            showStatusMessage(`Invalid file name, Expected: ${fileType+".txt"}.`, true);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('fileType', fileType);
+        formData.append('file', file)
         
+        toggleSpinner(true, `Uploading is in progress...`);
+        const response = await fetch('/upload_file', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+        showStatusMessage(data.status, data.error);
+
+        if (!data.error) {
+            fileInput.disabled = true;
+            updateStepStatus("decryption", fileType, true);
+            if (fileType=="key-private"){
+                enableNextStep("decryption", 'Process');   
+            } else if (fileType =="encrypted_result"){
+                enableNextStep("decryption", 'cryptocontext');
+            } else if (fileType == "cryptocontext"){
+                enableNextStep("decryption", 'key-private');
+            }
+             
+        }
+        toggleSpinner(false);
+    }
+
     </script>
 </body>
 </html>
